@@ -14,6 +14,14 @@ Apiary itself.
 Under active development. Resources implemented: `apiary_vm`,
 `apiary_jail`, `apiary_network`.
 
+Live-verified against a real Apiary cluster (`apiarium`, via a real
+`restshimd` process and an SSH tunnel): `terraform apply` created a
+real `apiary_jail` and `apiary_network`, converging to an actual
+running `jail(8)` process on its own ZFS dataset within one reconcile
+tick; `terraform plan` reported no drift against that real state;
+`terraform destroy` tore both down for real, confirmed via `jls`/
+`zfs list` back on the cluster itself.
+
 ## Requirements
 
 - Go 1.24+ (to build the provider)

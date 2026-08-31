@@ -99,5 +99,9 @@ func (p *ApiaryProvider) Resources(_ context.Context) []func() resource.Resource
 }
 
 func (p *ApiaryProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{
+		NewVMDataSource,
+		NewJailDataSource,
+		NewNetworkDataSource,
+	}
 }

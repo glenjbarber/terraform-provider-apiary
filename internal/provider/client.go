@@ -108,7 +108,10 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 	return nil
 }
 
-// VM mirrors internal/restshim's own vm JSON shape.
+// VM mirrors internal/restshim's own vm JSON shape - including the
+// iso_name/network_id/ip_address/mac_address/base_image_name fields
+// restshim gained alongside Apiary's ADR-0031 (VM base disk images),
+// previously missing from this client entirely.
 type VM struct {
 	ID            string `json:"id"`
 	Name          string `json:"name,omitempty"`
@@ -117,6 +120,11 @@ type VM struct {
 	NodeID        string `json:"node_id,omitempty"`
 	DesiredState  string `json:"desired_state,omitempty"`
 	ReplicaNodeID string `json:"replica_node_id,omitempty"`
+	ISOName       string `json:"iso_name,omitempty"`
+	NetworkID     string `json:"network_id,omitempty"`
+	IPAddress     string `json:"ip_address,omitempty"`
+	MACAddress    string `json:"mac_address,omitempty"`
+	BaseImageName string `json:"base_image_name,omitempty"`
 }
 
 func (c *Client) CreateVM(ctx context.Context, v VM) (*VM, error) {

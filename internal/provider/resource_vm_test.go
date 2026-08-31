@@ -162,6 +162,38 @@ provider "apiary" {
 `, endpoint)
 }
 
+// TestAccVMResource_ISONetworkAndBaseImage confirms the fields restshim
+// gained alongside Apiary's ADR-0031 (iso_name/network_id/
+// base_image_name, plus the read-only ip_address/mac_address) actually
+// round-trip through the provider - these were previously entirely
+// absent from this resource.
+func TestAccVMResource_ISONetworkAndBaseImage(t *testing.T) {
+	backend := newFakeRestshim()
+	srv := backend.server(t)
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: providerConfig(srv.URL) + `
+resource "apiary_vm" "test" {
+  id              = "vm-1"
+  node_id         = "node-a"
+  iso_name        = "debian.iso"
+  network_id      = "net-1"
+  base_image_name = "debian-cloud.raw"
+}
+`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("apiary_vm.test", "iso_name", "debian.iso"),
+					resource.TestCheckResourceAttr("apiary_vm.test", "network_id", "net-1"),
+					resource.TestCheckResourceAttr("apiary_vm.test", "base_image_name", "debian-cloud.raw"),
+				),
+			},
+		},
+	})
+}
+
 func TestAccVMResource_CreateUpdateDestroy(t *testing.T) {
 	backend := newFakeRestshim()
 	srv := backend.server(t)

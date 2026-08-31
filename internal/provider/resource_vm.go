@@ -8,6 +8,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -39,6 +41,11 @@ type vmResourceModel struct {
 	NodeID        types.String `tfsdk:"node_id"`
 	DesiredState  types.String `tfsdk:"desired_state"`
 	ReplicaNodeID types.String `tfsdk:"replica_node_id"`
+	ISOName       types.String `tfsdk:"iso_name"`
+	NetworkID     types.String `tfsdk:"network_id"`
+	BaseImageName types.String `tfsdk:"base_image_name"`
+	IPAddress     types.String `tfsdk:"ip_address"`
+	MACAddress    types.String `tfsdk:"mac_address"`
 }
 
 func (r *VMResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -76,6 +83,32 @@ func (r *VMResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *r
 			"replica_node_id": schema.StringAttribute{
 				Optional:    true,
 				Description: "A second cluster node to HAST-replicate this VM's disk to, for data redundancy (not automatic failover). Caller-set, exactly like node_id - see Apiary's ADR-0026.",
+			},
+			"iso_name": schema.StringAttribute{
+				Optional:    true,
+				Description: "Name of an image already uploaded to the assigned node via Apiary's UploadISO RPC - attached as a CD-ROM device. See Apiary's ADR-0017.",
+			},
+			"network_id": schema.StringAttribute{
+				Optional:    true,
+				Description: "An Apiary NetworkDefinition (see apiary_network) this VM's NIC belongs to. Leave unset for Apiary's flat, node-wide bridge behavior. See Apiary's ADR-0022.",
+			},
+			"base_image_name": schema.StringAttribute{
+				Optional:    true,
+				Description: "Name of a raw disk image already uploaded via UploadISO - the VM's disk is seeded from it on first creation instead of created blank. Required in practice for an unattended Linux VM to boot into a working OS. See Apiary's ADR-0031.",
+			},
+			"ip_address": schema.StringAttribute{
+				Computed:    true,
+				Description: "IP address Apiary's raft FSM assigned this VM when network_id is set - read-only, never caller-set.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
+			},
+			"mac_address": schema.StringAttribute{
+				Computed:    true,
+				Description: "MAC address Apiary's raft FSM assigned this VM when network_id is set - read-only, never caller-set.",
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 		},
 	}
@@ -132,6 +165,34 @@ func vmToModel(v *VM) vmResourceModel {
 	} else {
 		m.ReplicaNodeID = types.StringNull()
 	}
+	if v.ISOName != "" {
+		m.ISOName = types.StringValue(v.ISOName)
+	} else {
+		m.ISOName = types.StringNull()
+	}
+	if v.NetworkID != "" {
+		m.NetworkID = types.StringValue(v.NetworkID)
+	} else {
+		m.NetworkID = types.StringNull()
+	}
+	if v.BaseImageName != "" {
+		m.BaseImageName = types.StringValue(v.BaseImageName)
+	} else {
+		m.BaseImageName = types.StringNull()
+	}
+	// IPAddress/MACAddress are read-only, assigned by Apiary's FSM only
+	// when network_id is set - null (not empty-string) when unassigned,
+	// matching every other optional field's null-vs-zero handling above.
+	if v.IPAddress != "" {
+		m.IPAddress = types.StringValue(v.IPAddress)
+	} else {
+		m.IPAddress = types.StringNull()
+	}
+	if v.MACAddress != "" {
+		m.MACAddress = types.StringValue(v.MACAddress)
+	} else {
+		m.MACAddress = types.StringNull()
+	}
 	return m
 }
 
@@ -144,6 +205,9 @@ func modelToVM(m vmResourceModel) VM {
 		NodeID:        m.NodeID.ValueString(),
 		DesiredState:  m.DesiredState.ValueString(),
 		ReplicaNodeID: m.ReplicaNodeID.ValueString(),
+		ISOName:       m.ISOName.ValueString(),
+		NetworkID:     m.NetworkID.ValueString(),
+		BaseImageName: m.BaseImageName.ValueString(),
 	}
 }
 

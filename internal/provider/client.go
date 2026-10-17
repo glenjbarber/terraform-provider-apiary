@@ -50,6 +50,25 @@ type apiErrorBody struct {
 	LeaderHint string `json:"leader_hint,omitempty"`
 }
 
+type apiStatusError struct {
+	status int
+	body   apiErrorBody
+}
+
+func (e *apiStatusError) Error() string { return e.body.asError().Error() }
+
+// alreadyDeleted recognizes only the exact missing-ID rejection for the
+// requested DELETE operation. Other HTTP 400 responses must remain errors.
+func alreadyDeleted(err error, operation, id string) bool {
+	if errors.Is(err, ErrNotFound) {
+		return true
+	}
+	var apiErr *apiStatusError
+	return errors.As(err, &apiErr) && apiErr.status == http.StatusBadRequest &&
+		apiErr.body.LeaderHint == "" &&
+		apiErr.body.Error == fmt.Sprintf("%s: id %q does not exist", operation, id)
+}
+
 func (e apiErrorBody) asError() error {
 	if e.LeaderHint != "" {
 		return fmt.Errorf("%s (leader hint: %s)", e.Error, e.LeaderHint)
@@ -98,7 +117,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, out any) err
 		if apiErr.Error == "" {
 			return fmt.Errorf("apiary: %s %s: unexpected status %d", method, path, resp.StatusCode)
 		}
-		return apiErr.asError()
+		return &apiStatusError{status: resp.StatusCode, body: apiErr}
 	}
 	if out != nil {
 		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
@@ -153,7 +172,7 @@ func (c *Client) UpdateVM(ctx context.Context, id string, v VM) (*VM, error) {
 
 func (c *Client) DeleteVM(ctx context.Context, id string) error {
 	err := c.do(ctx, http.MethodDelete, "/v1/vms/"+id, nil, nil)
-	if errors.Is(err, ErrNotFound) {
+	if alreadyDeleted(err, "DeleteVM", id) {
 		return nil // already gone - Delete is idempotent from Terraform's perspective
 	}
 	return err
@@ -195,7 +214,7 @@ func (c *Client) UpdateJail(ctx context.Context, id string, j Jail) (*Jail, erro
 
 func (c *Client) DeleteJail(ctx context.Context, id string) error {
 	err := c.do(ctx, http.MethodDelete, "/v1/jails/"+id, nil, nil)
-	if errors.Is(err, ErrNotFound) {
+	if alreadyDeleted(err, "DeleteJail", id) {
 		return nil
 	}
 	return err
@@ -248,7 +267,7 @@ func (c *Client) ListNetworks(ctx context.Context) ([]Network, error) {
 
 func (c *Client) DeleteNetwork(ctx context.Context, id string) error {
 	err := c.do(ctx, http.MethodDelete, "/v1/networks/"+id, nil, nil)
-	if errors.Is(err, ErrNotFound) {
+	if alreadyDeleted(err, "DeleteNetwork", id) {
 		return nil
 	}
 	return err

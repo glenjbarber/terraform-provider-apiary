@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -243,14 +244,14 @@ func TestClient_DeleteMissingIDAndOtherBadRequests(t *testing.T) {
 				w.WriteHeader(status)
 				json.NewEncoder(w).Encode(apiErrorBody{Error: message})
 			})
-			message = tc.operation + ": id \\"" + tc.id + "\\" does not exist"
+			message = fmt.Sprintf("%s: id %q does not exist", tc.operation, tc.id)
 			if err := tc.deleteFn(client, tc.id); err != nil {
 				t.Errorf("missing ID error = %v, want nil", err)
 			}
 			for _, bad := range []string{
 				tc.operation + ": still referenced by another resource",
-				"DeleteVM: id \\"" + tc.id + "\\" does not exist",
-				tc.operation + ": id \\"other\\" does not exist",
+				fmt.Sprintf("DeleteVM: id %q does not exist", tc.id),
+				fmt.Sprintf("%s: id %q does not exist", tc.operation, "other"),
 			} {
 				if bad == message { continue }
 				message = bad
@@ -258,7 +259,7 @@ func TestClient_DeleteMissingIDAndOtherBadRequests(t *testing.T) {
 					t.Errorf("unexpectedly suppressed HTTP 400: %q", bad)
 				}
 			}
-			message = tc.operation + ": id \\"" + tc.id + "\\" does not exist"
+			message = fmt.Sprintf("%s: id %q does not exist", tc.operation, tc.id)
 			status = http.StatusServiceUnavailable
 			if err := tc.deleteFn(client, tc.id); err == nil {
 				t.Error("unexpectedly suppressed HTTP 503")

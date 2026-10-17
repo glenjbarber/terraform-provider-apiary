@@ -220,3 +220,49 @@ func TestClient_LeaderHintIsIncludedInError(t *testing.T) {
 		t.Errorf("error = %q, want to include the leader hint", got)
 	}
 }
+
+// Apiary's REST shim returns 400 (not 404) for an absent ID rejected
+// by the raft FSM. Suppress only the exact matching DELETE error.
+func TestClient_DeleteMissingIDAndOtherBadRequests(t *testing.T) {
+	cases := []struct {
+		name, operation, id, path string
+		deleteFn func(*Client, string) error
+	}{
+		{"vm", "DeleteVM", "vm-missing", "/v1/vms/vm-missing", (*Client).DeleteVM},
+		{"jail", "DeleteJail", "jail-missing", "/v1/jails/jail-missing", (*Client).DeleteJail},
+		{"network", "DeleteNetwork", "net-missing", "/v1/networks/net-missing", (*Client).DeleteNetwork},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			message := ""
+			status := http.StatusBadRequest
+			client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodDelete || r.URL.Path != tc.path {
+					t.Errorf("request = %s %s, want DELETE %s", r.Method, r.URL.Path, tc.path)
+				}
+				w.WriteHeader(status)
+				json.NewEncoder(w).Encode(apiErrorBody{Error: message})
+			})
+			message = tc.operation + ": id \\"" + tc.id + "\\" does not exist"
+			if err := tc.deleteFn(client, tc.id); err != nil {
+				t.Errorf("missing ID error = %v, want nil", err)
+			}
+			for _, bad := range []string{
+				tc.operation + ": still referenced by another resource",
+				"DeleteVM: id \\"" + tc.id + "\\" does not exist",
+				tc.operation + ": id \\"other\\" does not exist",
+			} {
+				if bad == message { continue }
+				message = bad
+				if err := tc.deleteFn(client, tc.id); err == nil {
+					t.Errorf("unexpectedly suppressed HTTP 400: %q", bad)
+				}
+			}
+			message = tc.operation + ": id \\"" + tc.id + "\\" does not exist"
+			status = http.StatusServiceUnavailable
+			if err := tc.deleteFn(client, tc.id); err == nil {
+				t.Error("unexpectedly suppressed HTTP 503")
+			}
+		})
+	}
+}

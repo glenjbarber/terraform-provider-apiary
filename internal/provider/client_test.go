@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -218,5 +219,51 @@ func TestClient_LeaderHintIsIncludedInError(t *testing.T) {
 	}
 	if got := err.Error(); got != "not leader (leader hint: 10.0.0.2:17600)" {
 		t.Errorf("error = %q, want to include the leader hint", got)
+	}
+}
+
+// Apiary's REST shim returns 400 (not 404) for an absent ID rejected
+// by the raft FSM. Suppress only the exact matching DELETE error.
+func TestClient_DeleteMissingIDAndOtherBadRequests(t *testing.T) {
+	cases := []struct {
+		name, operation, id, path string
+		deleteFn func(*Client, string) error
+	}{
+		{"vm", "DeleteVM", "vm-missing", "/v1/vms/vm-missing", (*Client).DeleteVM},
+		{"jail", "DeleteJail", "jail-missing", "/v1/jails/jail-missing", (*Client).DeleteJail},
+		{"network", "DeleteNetwork", "net-missing", "/v1/networks/net-missing", (*Client).DeleteNetwork},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			message := ""
+			status := http.StatusBadRequest
+			client, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodDelete || r.URL.Path != tc.path {
+					t.Errorf("request = %s %s, want DELETE %s", r.Method, r.URL.Path, tc.path)
+				}
+				w.WriteHeader(status)
+				json.NewEncoder(w).Encode(apiErrorBody{Error: message})
+			})
+			message = fmt.Sprintf("%s: id %q does not exist", tc.operation, tc.id)
+			if err := tc.deleteFn(client, tc.id); err != nil {
+				t.Errorf("missing ID error = %v, want nil", err)
+			}
+			for _, bad := range []string{
+				tc.operation + ": still referenced by another resource",
+				fmt.Sprintf("DeleteVM: id %q does not exist", tc.id),
+				fmt.Sprintf("%s: id %q does not exist", tc.operation, "other"),
+			} {
+				if bad == message { continue }
+				message = bad
+				if err := tc.deleteFn(client, tc.id); err == nil {
+					t.Errorf("unexpectedly suppressed HTTP 400: %q", bad)
+				}
+			}
+			message = fmt.Sprintf("%s: id %q does not exist", tc.operation, tc.id)
+			status = http.StatusServiceUnavailable
+			if err := tc.deleteFn(client, tc.id); err == nil {
+				t.Error("unexpectedly suppressed HTTP 503")
+			}
+		})
 	}
 }
